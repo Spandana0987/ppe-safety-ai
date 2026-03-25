@@ -1,8 +1,18 @@
+# Python
 venv/
 __pycache__/
 *.pyc
+
+# Outputs
 output/
+runs/
 *.mp4
-*.mkv
 *.avi
-.env
+*.jpg
+*.png
+
+# System
+.DS_Store
+
+dataset/
+*.zip

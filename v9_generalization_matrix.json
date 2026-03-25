@@ -1,0 +1,56 @@
+{
+    "construction_demo1.mp4": {
+        "total_workers": 6,
+        "machines_detected": 7,
+        "vehicles_detected": 2,
+        "helmet_violations": 2,
+        "vest_violations": 2,
+        "compliance_rate": 66.67,
+        "safety_score": 66.67
+    },
+    "construction_demo2.mp4": {
+        "total_workers": 23,
+        "machines_detected": 26,
+        "vehicles_detected": 62,
+        "helmet_violations": 1,
+        "vest_violations": 1,
+        "compliance_rate": 91.3,
+        "safety_score": 91.3
+    },
+    "construction_demo3.mp4": {
+        "total_workers": 2,
+        "machines_detected": 1,
+        "vehicles_detected": 0,
+        "helmet_violations": 2,
+        "vest_violations": 2,
+        "compliance_rate": 0.0,
+        "safety_score": 0.0
+    },
+    "construction_demo4.mp4": {
+        "total_workers": 3,
+        "machines_detected": 8,
+        "vehicles_detected": 52,
+        "helmet_violations": 1,
+        "vest_violations": 0,
+        "compliance_rate": 66.67,
+        "safety_score": 66.67
+    },
+    "construction_demo5.mp4": {
+        "total_workers": 3,
+        "machines_detected": 1,
+        "vehicles_detected": 0,
+        "helmet_violations": 1,
+        "vest_violations": 3,
+        "compliance_rate": 0.0,
+        "safety_score": 0.0
+    },
+    "construction_demo6.mp4": {
+        "total_workers": 1,
+        "machines_detected": 0,
+        "vehicles_detected": 0,
+        "helmet_violations": 1,
+        "vest_violations": 1,
+        "compliance_rate": 0.0,
+        "safety_score": 0.0
+    }
+}

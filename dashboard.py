@@ -1,110 +1,175 @@
+"""
+PPE Safety Intelligence Dashboard — Failsafe Edition
+STRICT 2-PHASE FLOW: Detection -> Video -> Analysis -> Metrics
+"""
 import streamlit as st
 import json
 import os
+import subprocess
+import time
 import pandas as pd
 from PIL import Image
 
-# --- CONFIG & UI SETUP ---
-st.set_page_config(page_title="PPE Safety AI: Site Monitoring", layout="wide", page_icon="👷")
+# ── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="PPE Safety AI | Failsafe Monitor",
+    layout="wide",
+    page_icon="👷",
+)
 
-# Premium Dark Theme Overrides
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 15px; }
-    [data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
-    </style>
-""", unsafe_allow_html=True)
+# ── Styles ───────────────────────────────────────────────────────────────────
+st.markdown("<style>h1, h2, h3 { color: #58a6ff !important; }</style>", unsafe_allow_html=True)
 
+# ── Constants ────────────────────────────────────────────────────────────────
+VIDEO_DIR   = "videos"
+VIDEO_OUT   = "output/processed_video.mp4"
+DATA_OUT    = "output/processed_video_data.json"
+REPORT_OUT  = "output/summary_report.json"
+
+os.makedirs(VIDEO_DIR, exist_ok=True)
+os.makedirs("output", exist_ok=True)
+
+# ── Sidebar ──────────────────────────────────────────────────────────────────
+st.sidebar.markdown("## 🛠️ Monitoring Controls")
+
+available = sorted(f for f in os.listdir(VIDEO_DIR) if f.lower().endswith((".mp4", ".avi", ".mov")))
+if not available: available = ["No videos found"]
+
+selected_video = st.sidebar.selectbox("🎥 Select Source Video", available)
+run_btn = st.sidebar.button("🚀 Run Site Analysis", use_container_width=True)
+
+st.sidebar.markdown("---")
+view_mode = st.sidebar.radio("🔎 Filter Registry", ["All Workers", "Violations Only", "Safe Workers"])
+
+# ── Session State Initialization ─────────────────────────────────────────────
+if "stage" not in st.session_state:
+    st.session_state.stage = "idle"   # idle → processing → detected → analyzed
+if "last_vid" not in st.session_state:
+    st.session_state.last_vid = None
+
+# Reset state if selection changes
+if selected_video != st.session_state.last_vid:
+    st.session_state.stage = "idle"
+    st.session_state.last_vid = selected_video
+
+# ── MAIN TITLE ───────────────────────────────────────────────────────────────
 st.title("👷 PPE Safety Intelligence Dashboard")
-st.caption("Industrial Safety Monitoring & Compliance Analytics")
+st.caption(f"Active Monitoring: **{selected_video}**")
 st.markdown("---")
 
-# --- LOAD DATA ---
-REPORT_PATH = "output/summary_report.json"
-
-if not os.path.exists(REPORT_PATH):
-    st.error("⚠️ Summary report not found. Please run the detection pipeline first.")
-    st.stop()
-
-with open(REPORT_PATH, "r") as f:
-    report = json.load(f)
-
-# --- SIDEBAR & FILTERS ---
-st.sidebar.title("🛠️ Monitoring Controls")
-st.sidebar.markdown("---")
-view_mode = st.sidebar.radio("🔎 Filter Worker View", ["All Workers", "Violations Only", "Safe Workers"])
-
-# Bonus: Video Selection (Placeholder logic)
-st.sidebar.selectbox("🎥 Source Video", ["construction_demo3.mp4", "Live Stream (RTSP)"])
-
-if st.sidebar.button("🔄 Refresh Data"):
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.info(f"**Site Safety Score**: {report['metrics']['safety_score']}%")
-st.sidebar.progress(report['metrics']['safety_score'] / 100)
-
-# --- TOP METRICS ---
-m = report["metrics"]
-c1, c2, c3, c4, c5 = st.columns(5)
-
-# Safety Score Card
-c1.metric("Site Safety Score", f"{m['safety_score']}%", delta=f"{m['safety_score']-70}%" if m['safety_score'] > 70 else "-Low")
-c2.metric("Total Workers", m["total_workers"])
-c3.metric("Helmet Violations", m["helmet_violations"], delta=m["helmet_violations"], delta_color="inverse")
-c4.metric("Vest Violations", m["vest_violations"], delta=m["vest_violations"], delta_color="inverse")
-c5.metric("Hazards Detected", m["machines_detected"] + m["vehicles_detected"])
-
-st.markdown("---")
-
-# --- WORKER TABLE & VIOLATION LOG ---
-col_table, col_gallery = st.columns([1, 1])
-
-with col_table:
-    st.subheader("📋 Worker Compliance Registry")
+# ── STEP 1: RUN LOGIC ────────────────────────────────────────────────────────
+if run_btn and selected_video != "No videos found":
+    st.session_state.stage = "processing"
     
-    df = pd.DataFrame(report["full_worker_list"])
+    # OUTPUT ISOLATION
+    import shutil
+    if os.path.exists("output"):
+        shutil.rmtree("output")
+    os.makedirs("output/frames", exist_ok=True)
+
+    input_path = os.path.join(VIDEO_DIR, selected_video)
     
-    # Apply filtering
-    if view_mode == "Violations Only":
-        df = df[df["status"] == "VIOLATION"]
-    elif view_mode == "Safe Workers":
-        df = df[df["status"] == "SAFE"]
+    with st.spinner("🏗️ Running neural site detection..."):
+        # RUN DETECTION
+        result = subprocess.run([
+            "venv/bin/python3", "detect_video.py", 
+            "--source", input_path, "--save-video"
+        ], capture_output=True, text=True)
         
-    st.dataframe(df, use_container_width=True, hide_index=True)
+        if result.returncode != 0:
+            st.error(f"Detection failed: {result.stderr}")
+            st.session_state.stage = "idle"
+            st.stop()
+        
+    st.session_state.stage = "detected"
 
-    st.markdown("---")
-    st.subheader("🚨 Recent Violation Log")
-    if not report["violation_log"]:
-        st.success("No active violations detected.")
-    else:
-        for v in report["violation_log"]:
-            with st.expander(f"🔴 Worker {v['worker_id']} - {', '.join(v['violations'])}"):
-                st.write(f"**Worker ID**: {v['worker_id']}")
-                st.write(f"**Confirmed Violations**: {', '.join(v['violations'])}")
-                st.write(f"**Evidence Samples**: {len(v['evidence'])}")
+# ── STEP 2: VIDEO RENDERING ──────────────────────────────────────────────────
+if st.session_state.stage in ["detected", "analyzed"]:
+    st.subheader("📺 Processed Site Intelligence Feed")
+    video_path = "output/processed_video.mp4"
 
-# --- EVIDENCE GALLERY ---
-with col_gallery:
-    st.subheader("📸 Proof-of-Violation Gallery")
+    # FILE STABILITY CHECK (Retry Loop)
+    found = False
+    for _ in range(20):
+        if os.path.exists(video_path) and os.path.getsize(video_path) > 500000:
+            found = True
+            break
+        time.sleep(0.3)
     
-    all_evidence = []
-    for v in report["violation_log"]:
-        for img_path in v["evidence"]:
-            all_evidence.append((img_path, f"Worker {v['worker_id']}: {', '.join(v['violations'])}"))
+    if not found:
+        st.error("❌ CRITICAL: Processed video not ready or corrupted.")
+        st.info("Check if detect_video.py completed successfully.")
+        st.stop()
 
-    if not all_evidence:
-        st.info("The gallery will populate when violations are detected.")
+    # READ AS BYTES + UNIQUE KEY (STRICT MANDATE)
+    with open(video_path, "rb") as f:
+        video_bytes = f.read()
+    
+    st.video(video_bytes)
+    st.success("✅ Site intelligence feed loaded successfully.")
+    st.markdown("---")
+
+# ── STEP 3: RUN ANALYSIS ─────────────────────────────────────────────────────
+if st.session_state.stage == "detected":
+    with st.spinner("📊 Compiling safety metrics..."):
+        result = subprocess.run([
+            "venv/bin/python3", "generate_report.py"
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            st.error(f"Analysis failed: {result.stderr}")
+            st.stop()
+            
+    st.session_state.stage = "analyzed"
+
+# ── STEP 4: SHOW ANALYSIS ────────────────────────────────────────────────────
+if st.session_state.stage == "analyzed":
+    report_path = "output/summary_report.json"
+    if os.path.exists(report_path):
+        with open(report_path) as f:
+            data = json.load(f)
+        
+        m = data["metrics"]
+        
+        # Metric Cards
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Safety Score", f"{m['safety_score']}%")
+        c2.metric("Total Workers", m["total_workers"])
+        c3.metric("Helmet Violations", m["helmet_violations"])
+        c4.metric("Vest Violations",   m["vest_violations"])
+        
+        st.markdown("---")
+        
+        # Registry
+        st.subheader("📋 Compliance Registry")
+        df = pd.DataFrame(data.get("full_worker_list", []))
+        if not df.empty:
+            if view_mode == "Violations Only": df = df[df["status"] == "VIOLATION"]
+            elif view_mode == "Safe Workers": df = df[df["status"] == "SAFE"]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+        st.markdown("---")
+        # Evidence
+        st.subheader("📸 Proof-of-Violation Gallery")
+        vlog = data.get("violation_log", [])
+        evidence = [(img, f"Track {v['worker_id']}") for v in vlog for img in v.get("evidence", []) if os.path.exists(img)]
+        if evidence:
+            cols = st.columns(4)
+            for idx, (img, cap) in enumerate(evidence):
+                cols[idx % 4].image(img, caption=cap, use_container_width=True)
+        
+        st.success("Analysis Complete")
     else:
-        # Display in 3-column grid
-        cols = st.columns(3)
-        for idx, (img_path, caption) in enumerate(all_evidence):
-            if os.path.exists(img_path):
-                img = Image.open(img_path)
-                cols[idx % 3].image(img, caption=caption, use_container_width=True)
-            else:
-                cols[idx % 3].warning("Image missing")
+        st.error("⚠️ Safety analytics generation failed (JSON not found).")
+
+# ── IDLE STATE (PRE-RUN) ─────────────────────────────────────────────────────
+if st.session_state.stage == "idle":
+    st.info("👋 Select a video and click **Run Site Analysis** to begin monitoring.")
+    raw_path = os.path.join(VIDEO_DIR, selected_video) if selected_video != "No videos found" else None
+    if raw_path and os.path.exists(raw_path):
+        st.subheader("📹 Source Feed Preview")
+        with open(raw_path, "rb") as f:
+            st.video(f.read())
 
 st.markdown("---")
-st.caption("system status: online | ppe-association: active (IoU) | temporal-smoothing: active (60%)")
+st.caption("Engine: Industrial Failsafe | Status: Deterministic Loop Active")
